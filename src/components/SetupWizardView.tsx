@@ -120,19 +120,155 @@ export default function SetupWizardView({ lessonPlan, setLessonPlan, onComplete 
     }));
   };
 
-  const handleOriginalFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setSelectedOriginalFile(file);
-      
+  const [isDragging, setIsDragging] = useState(false);
+  const [fileStatus, setFileStatus] = useState<{ type: 'success' | 'error' | 'loading' | ''; message: string }>({ type: '', message: '' });
+
+  const processUploadedFile = async (file: File) => {
+    setSelectedOriginalFile(file);
+    setFileStatus({ type: 'loading', message: `Đang xử lý tệp "${file.name}"...` });
+    setErrorMessage('');
+
+    const fileNameLower = file.name.toLowerCase();
+
+    // 1. JSON File (Import Lesson Plan directly)
+    if (fileNameLower.endsWith('.json')) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const jsonText = event.target?.result as string;
+          const importedPlan = JSON.parse(jsonText);
+          if (importedPlan && (importedPlan.title || importedPlan.generalObjectives)) {
+            setLessonPlan(prev => ({
+              ...prev,
+              ...importedPlan
+            }));
+            setFileStatus({ 
+              type: 'success', 
+              message: `Đã nhập trực tiếp giáo án từ file JSON "${file.name}"!` 
+            });
+          } else {
+            setFileStatus({ 
+              type: 'error', 
+              message: "File JSON không đúng cấu trúc giáo án chuẩn." 
+            });
+          }
+        } catch (err) {
+          setFileStatus({ 
+            type: 'error', 
+            message: "Lỗi khi đọc hoặc phân tích file JSON." 
+          });
+        }
+      };
+      reader.readAsText(file);
+    }
+    // 2. Text File (.txt)
+    else if (fileNameLower.endsWith('.txt')) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const text = event.target?.result as string;
+          setPastedText(text);
+          setFileStatus({ 
+            type: 'success', 
+            message: `Đã trích xuất thành công ${text.length} ký tự từ file văn bản "${file.name}"!` 
+          });
+          // Switch to paste mode so user can see it
+          setGenerationMode('auto_sgk');
+        } catch (err) {
+          setFileStatus({ 
+            type: 'error', 
+            message: "Lỗi khi đọc file text." 
+          });
+        }
+      };
+      reader.readAsText(file);
+    }
+    // 3. Word Document (.docx)
+    else if (fileNameLower.endsWith('.docx')) {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        try {
+          const arrayBuffer = event.target?.result as ArrayBuffer;
+          const mammoth = await import('mammoth');
+          const result = await mammoth.extractRawText({ arrayBuffer });
+          const text = result.value;
+          
+          if (text && text.trim().length > 0) {
+            setPastedText(text);
+            setFileStatus({ 
+              type: 'success', 
+              message: `Đã trích xuất thành công ${text.length} ký tự từ file Word (.docx) "${file.name}"!` 
+            });
+            // Automatically switch to text pasting mode to let user view/edit the content
+            setGenerationMode('auto_sgk');
+          } else {
+            setFileStatus({ 
+              type: 'error', 
+              message: "Tệp Word (.docx) rỗng hoặc không trích xuất được văn bản." 
+            });
+          }
+        } catch (err: any) {
+          console.error(err);
+          setFileStatus({ 
+            type: 'error', 
+            message: `Không thể đọc file Word (.docx): ${err.message || err}` 
+          });
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+    // 4. PDFs or Images (Forward base64 to Gemini)
+    else if (fileNameLower.endsWith('.pdf') || file.type.startsWith('image/')) {
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target?.result) {
           const base64String = (event.target.result as string).split(',')[1];
           setSelectedOriginalBase64(base64String);
+          setFileStatus({ 
+            type: 'success', 
+            message: `Tệp "${file.name}" đã được tải lên và sẵn sàng phân tích trực tiếp bằng AI!` 
+          });
+        } else {
+          setFileStatus({ 
+            type: 'error', 
+            message: "Không thể đọc dữ liệu tệp." 
+          });
         }
       };
+      reader.onerror = () => {
+        setFileStatus({ type: 'error', message: "Lỗi khi đọc tệp tin." });
+      };
       reader.readAsDataURL(file);
+    }
+    // 5. Unsupported files
+    else {
+      setFileStatus({ 
+        type: 'error', 
+        message: `Định dạng tệp "${file.name}" chưa được hỗ trợ. Vui lòng tải file .docx, .txt, .pdf, .json hoặc file Ảnh.` 
+      });
+    }
+  };
+
+  const handleOriginalFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      processUploadedFile(e.target.files[0]);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      processUploadedFile(e.dataTransfer.files[0]);
     }
   };
 
@@ -383,29 +519,42 @@ export default function SetupWizardView({ lessonPlan, setLessonPlan, onComplete 
       {generationMode === 'edit_original' && (
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 animate-in fade-in duration-300">
           <h2 className="flex items-center text-lg font-bold text-slate-800 mb-6">
-            <UploadCloud className="mr-2 text-pink-500" size={20} /> Tài liệu đầu vào (Tải lên Giáo án PDF hoặc hình ảnh SGK)
+            <UploadCloud className="mr-2 text-pink-500" size={20} /> Tài liệu đầu vào (Tải lên từ máy tính)
           </h2>
           
           <div className="flex flex-col md:flex-row gap-6">
             <div className="flex-1">
-                <label 
-                    htmlFor="original-upload"
-                    className={`border-2 border-dashed rounded-2xl h-48 flex flex-col items-center justify-center cursor-pointer transition-all ${
-                        selectedOriginalFile 
+                <div 
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    onClick={() => document.getElementById('original-upload')?.click()}
+                    className={`border-2 border-dashed rounded-2xl h-56 flex flex-col items-center justify-center cursor-pointer transition-all ${
+                        isDragging 
+                        ? 'border-indigo-500 bg-indigo-50/50 scale-[1.01]' 
+                        : selectedOriginalFile 
                         ? 'border-pink-300 bg-pink-50/30' 
                         : 'border-slate-300 bg-slate-50 hover:bg-slate-100'
                     }`}
                 >
                     <input 
-                        id="original-upload" type="file" className="hidden" accept=".pdf,image/*"
+                        id="original-upload" type="file" className="hidden" accept=".pdf,image/*,.docx,.txt,.json"
                         onChange={handleOriginalFileSelect}
                     />
-                    {selectedOriginalFile ? (
+                    {fileStatus.type === 'loading' ? (
+                        <>
+                            <Loader2 className="animate-spin text-indigo-500 mb-3" size={36} />
+                            <p className="font-bold text-slate-700 text-sm animate-pulse px-4 text-center">{fileStatus.message}</p>
+                        </>
+                    ) : selectedOriginalFile ? (
                         <>
                             <div className="bg-white p-3 rounded-full shadow-sm mb-3">
                               <CheckCircle2 size={32} className="text-[#D82B71]" />
                             </div>
-                            <p className="font-bold text-[#D82B71] text-lg mb-1 line-clamp-1 px-4 text-center">{selectedOriginalFile.name}</p>
+                            <p className="font-bold text-[#D82B71] text-base mb-1 line-clamp-1 px-4 text-center">{selectedOriginalFile.name}</p>
+                            {fileStatus.type === 'success' && (
+                              <p className="text-xs text-green-600 font-medium px-4 text-center mt-1">{fileStatus.message}</p>
+                            )}
                             <span className="bg-pink-100 text-[#D82B71] text-xs font-bold px-3 py-1 rounded-full mt-2">Sẵn sàng phân tích</span>
                         </>
                     ) : (
@@ -413,20 +562,30 @@ export default function SetupWizardView({ lessonPlan, setLessonPlan, onComplete 
                             <div className="bg-white p-3 rounded-full shadow-sm mb-3">
                               <FileUp size={32} className="text-slate-400" />
                             </div>
-                            <p className="font-bold text-slate-700 mb-1">Tải lên Giáo án gốc / SGK</p>
-                            <p className="text-slate-400 text-xs">Hỗ trợ file PDF hoặc file Ảnh</p>
+                            <p className="font-bold text-slate-700 mb-1 text-center">Kéo thả hoặc Click để tải tệp lên</p>
+                            <p className="text-slate-400 text-xs text-center px-4 mt-1 leading-relaxed">
+                              Hỗ trợ: Word (.docx), PDF, Text (.txt), JSON giáo án cũ, hoặc Ảnh chụp SGK
+                            </p>
                         </>
                     )}
-                </label>
+                </div>
+
+                {/* File Parsing Alert Message */}
+                {fileStatus.type === 'error' && (
+                  <div className="mt-3 bg-red-50 border border-red-100 text-red-600 text-xs p-3 rounded-xl flex items-center gap-2">
+                    <AlertCircle size={14} className="flex-shrink-0" />
+                    <span>{fileStatus.message}</span>
+                  </div>
+                )}
             </div>
             <div className="w-full md:w-64">
-               <div className="border-2 border-dashed border-slate-200 bg-slate-50 rounded-2xl h-48 flex flex-col items-center justify-center text-slate-500 p-4">
+               <div className="border-2 border-dashed border-slate-200 bg-slate-50 rounded-2xl h-56 flex flex-col items-center justify-center text-slate-500 p-4">
                   <div className="bg-white p-3 rounded-full shadow-sm mb-2">
-                    <FileText className="text-slate-400" size={24} />
+                    <Zap className="text-pink-500" size={24} />
                   </div>
-                  <p className="font-bold text-slate-800 mb-1 text-center text-sm">Hỗ trợ Phân tích AI</p>
+                  <p className="font-bold text-slate-800 mb-1 text-center text-sm">Hỗ trợ trích xuất thông minh</p>
                   <p className="text-xs text-slate-500 text-center leading-relaxed">
-                    AI sẽ phân tích tài liệu để xây dựng cấu trúc bài giảng và tích hợp NLS chuẩn xác nhất.
+                    Tải file Word/Text để trích xuất văn bản thô tức thì, hoặc tải file PDF/Ảnh để AI đọc trực tiếp bằng thị giác máy tính.
                   </p>
                </div>
             </div>

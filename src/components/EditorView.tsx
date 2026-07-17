@@ -59,14 +59,14 @@ export default function EditorView({ lessonPlan, setLessonPlan, projectLessons, 
       const lessonsToExport = projectLessons.length > 0 ? projectLessons : [lessonPlan];
       const docChildren: any[] = [];
 
-      const createMultilineParagraph = (text: string, options: { bold?: boolean; italic?: boolean; size?: number; align?: any; before?: number; after?: number } = {}) => {
+      const createMultilineParagraph = (text: string, options: { bold?: boolean; italics?: boolean; size?: number; align?: any; before?: number; after?: number } = {}) => {
         const lines = text ? text.split('\n') : [''];
         const children: any[] = [];
         lines.forEach((line, i) => {
           children.push(new TextRun({
             text: line,
             bold: options.bold || false,
-            italic: options.italic || false,
+            italics: options.italics || false,
             size: (options.size || 14) * 2,
             font: "Times New Roman",
           }));
@@ -174,7 +174,7 @@ export default function EditorView({ lessonPlan, setLessonPlan, projectLessons, 
               text: "--------------------------------------------------------------------------------",
               font: "Times New Roman",
               size: 11 * 2,
-              italic: true,
+              italics: true,
             })
           ]
         }));
@@ -226,7 +226,7 @@ export default function EditorView({ lessonPlan, setLessonPlan, projectLessons, 
             children: [
               new TextRun({
                 text: "Chưa tích hợp mục tiêu năng lực số.",
-                italic: true,
+                italics: true,
                 size: 12 * 2,
                 font: "Times New Roman",
               })
@@ -288,7 +288,7 @@ export default function EditorView({ lessonPlan, setLessonPlan, projectLessons, 
             children: [
               new TextRun({
                 text: "Chưa có hoạt động tiến trình nào.",
-                italic: true,
+                italics: true,
                 size: 12 * 2,
                 font: "Times New Roman",
               })
