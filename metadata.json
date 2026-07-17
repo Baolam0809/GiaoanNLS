@@ -1,0 +1,6 @@
+{
+  "name": "Giáo Án Số Tích Hợp Năng Lực Số",
+  "description": "Hệ thống hỗ trợ giáo viên tự động hóa phân tích bài giảng và tích hợp Năng lực số chuẩn GDPT 2018 sử dụng trí tuệ nhân tạo.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
