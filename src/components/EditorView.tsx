@@ -23,6 +23,14 @@ import {
 } from 'lucide-react';
 import { SUBJECTS, competencyDataLookup } from '../data/competencyDb.js';
 import { LessonPlan, Competency, Activity } from '../types.js';
+import { 
+  Document, 
+  Packer, 
+  Paragraph, 
+  TextRun, 
+  AlignmentType, 
+  PageBreak 
+} from 'docx';
 
 interface EditorViewProps {
   lessonPlan: LessonPlan;
@@ -45,54 +53,291 @@ export default function EditorView({ lessonPlan, setLessonPlan, projectLessons, 
   // Trigger browser print
   const handlePrint = () => window.print();
 
-  // Export fully integrated plan to Word
-  const exportToWord = () => {
-    const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Giáo án tích hợp Năng lực số</title><style>body { font-family: 'Times New Roman', serif; font-size: 14pt; line-height: 1.5; padding: 20px; } h1, h2, h3 { text-align: center; font-weight: bold; } h4 { margin-bottom: 5px; font-weight: bold; border-bottom: 1px solid #333; } p { margin-top: 0; } .activity { border: 1px solid #eee; padding: 12px; margin-bottom: 15px; border-radius: 8px; background-color: #fafafa; } ul { margin-top: 0; }</style></head><body>";
-    const footer = "</body></html>";
-    
-    const lessonsToExport = projectLessons.length > 0 ? projectLessons : [lessonPlan];
-    let allContent = '';
-    
-    lessonsToExport.forEach((plan, index) => {
-        const activitiesList = plan.activities?.map(act => `
-          <div class="activity">
-            <h4 style="color: #4b5563;"><b>${act.name}</b></h4>
-            <p>${act.content.replace(/\n/g, '<br>')}</p>
-          </div>
-        `).join('') || '<p>Chưa có hoạt động nào.</p>';
+  // Export fully integrated plan to standard DOCX using docx package
+  const handleExportDocx = async () => {
+    try {
+      const lessonsToExport = projectLessons.length > 0 ? projectLessons : [lessonPlan];
+      const docChildren: any[] = [];
 
-        allContent += `
-          <h1 style="color: #2563eb; margin-top: ${index > 0 ? '50px' : '0'};">KẾ HOẠCH BÀI DẠY TÍCH HỢP NĂNG LỰC SỐ</h1>
-          <h2>${plan.lessonNumber ? plan.lessonNumber.toUpperCase() + ': ' : ''}${plan.title.toUpperCase() || `CHỦ ĐỀ ${index + 1}`}</h2>
-          <p style="text-align: center;"><b>Môn học:</b> ${plan.subject} | <b>Khối lớp:</b> ${plan.grade} | <b>Số tiết:</b> ${plan.numberOfPeriods || plan.duration || '1 tiết'}</p>
-          <hr/>
-          
-          <h3>I. MỤC TIÊU BÀI HỌC</h3>
-          <p><b>1. Mục tiêu chung:</b></p>
-          <p>${plan.generalObjectives ? plan.generalObjectives.replace(/\n/g, '<br>') : 'Chưa nhập mục tiêu chung'}</p>
-          
-          <p><b>2. Mục tiêu Năng lực số (GDPT 2018):</b></p>
-          <ul>${plan.competencies.length > 0 ? plan.competencies.map(c => `<li>[<b>${c.level}</b>] ${c.desc}</li>`).join('') : '<li>Chưa tích hợp năng lực số</li>'}</ul>
+      const createMultilineParagraph = (text: string, options: { bold?: boolean; italic?: boolean; size?: number; align?: any; before?: number; after?: number } = {}) => {
+        const lines = text ? text.split('\n') : [''];
+        const children: any[] = [];
+        lines.forEach((line, i) => {
+          children.push(new TextRun({
+            text: line,
+            bold: options.bold || false,
+            italic: options.italic || false,
+            size: (options.size || 14) * 2,
+            font: "Times New Roman",
+          }));
+          if (i < lines.length - 1) {
+            children.push(new TextRun({
+              text: "",
+              break: 1
+            }));
+          }
+        });
 
-          <h3>II. THIẾT BỊ DẠY HỌC & HỌC LIỆU</h3>
-          <p>${plan.materials ? plan.materials.replace(/\n/g, '<br>') : 'Chưa chuẩn bị thiết bị'}</p>
+        return new Paragraph({
+          alignment: options.align || AlignmentType.LEFT,
+          spacing: {
+            before: (options.before !== undefined ? options.before : 0) * 20,
+            after: (options.after !== undefined ? options.after : 6) * 20,
+            line: 240,
+          },
+          children: children
+        });
+      };
 
-          <h3>III. TIẾN TRÌNH DẠY HỌC</h3>
-          ${activitiesList}
-          
-          ${index < lessonsToExport.length - 1 ? '<br style="page-break-after: always;" />' : ''}
-        `;
-    });
-    
-    const sourceHTML = header + allContent + footer;
-    const source = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(sourceHTML);
-    const fileDownload = document.createElement("a");
-    document.body.appendChild(fileDownload);
-    fileDownload.href = source;
-    fileDownload.download = `GiaoAn_TichHop_NLS_${lessonPlan.title || 'Luu'}.doc`;
-    fileDownload.click();
-    document.body.removeChild(fileDownload);
+      lessonsToExport.forEach((plan, index) => {
+        // Add page break if not first lesson
+        if (index > 0) {
+          docChildren.push(new Paragraph({ children: [new PageBreak()] }));
+        }
+
+        // Title header
+        docChildren.push(new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 12 * 20, after: 12 * 20 },
+          children: [
+            new TextRun({
+              text: "KẾ HOẠCH BÀI DẠY TÍCH HỢP NĂNG LỰC SỐ",
+              bold: true,
+              size: 15 * 2,
+              font: "Times New Roman",
+            })
+          ]
+        }));
+
+        // Lesson Title
+        const lessonNum = plan.lessonNumber ? `${plan.lessonNumber.toUpperCase()}: ` : '';
+        docChildren.push(new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 0, after: 18 * 20 },
+          children: [
+            new TextRun({
+              text: `${lessonNum}${plan.title.toUpperCase() || `CHỦ ĐỀ ${index + 1}`}`,
+              bold: true,
+              size: 13 * 2,
+              font: "Times New Roman",
+            })
+          ]
+        }));
+
+        // Metadata details
+        docChildren.push(new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 0, after: 24 * 20 },
+          children: [
+            new TextRun({
+              text: `Môn học: `,
+              bold: true,
+              font: "Times New Roman",
+              size: 12 * 2,
+            }),
+            new TextRun({
+              text: `${plan.subject}   |   `,
+              font: "Times New Roman",
+              size: 12 * 2,
+            }),
+            new TextRun({
+              text: `Khối lớp: `,
+              bold: true,
+              font: "Times New Roman",
+              size: 12 * 2,
+            }),
+            new TextRun({
+              text: `${plan.grade}   |   `,
+              font: "Times New Roman",
+              size: 12 * 2,
+            }),
+            new TextRun({
+              text: `Thời lượng: `,
+              bold: true,
+              font: "Times New Roman",
+              size: 12 * 2,
+            }),
+            new TextRun({
+              text: `${plan.numberOfPeriods || plan.duration || '1 tiết'}`,
+              font: "Times New Roman",
+              size: 12 * 2,
+            }),
+          ]
+        }));
+
+        // Horizontal separator line
+        docChildren.push(new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 0, after: 24 * 20 },
+          children: [
+            new TextRun({
+              text: "--------------------------------------------------------------------------------",
+              font: "Times New Roman",
+              size: 11 * 2,
+              italic: true,
+            })
+          ]
+        }));
+
+        // I. MỤC TIÊU BÀI HỌC
+        docChildren.push(new Paragraph({
+          spacing: { before: 18 * 20, after: 12 * 20 },
+          children: [
+            new TextRun({
+              text: "I. MỤC TIÊU BÀI HỌC",
+              bold: true,
+              size: 13 * 2,
+              font: "Times New Roman",
+            })
+          ]
+        }));
+
+        // 1. Mục tiêu chung
+        docChildren.push(new Paragraph({
+          spacing: { before: 8 * 20, after: 8 * 20 },
+          children: [
+            new TextRun({
+              text: "1. Mục tiêu chung (Kiến thức, Kỹ năng, Phẩm chất):",
+              bold: true,
+              size: 12 * 2,
+              font: "Times New Roman",
+            })
+          ]
+        }));
+
+        docChildren.push(createMultilineParagraph(plan.generalObjectives || "Chưa nhập mục tiêu chung.", { size: 12, before: 0, after: 12 }));
+
+        // 2. Mục tiêu Năng lực số tích hợp
+        docChildren.push(new Paragraph({
+          spacing: { before: 12 * 20, after: 8 * 20 },
+          children: [
+            new TextRun({
+              text: "2. Mục tiêu Năng lực số tích hợp (Khung năng lực số GDPT):",
+              bold: true,
+              size: 12 * 2,
+              font: "Times New Roman",
+            })
+          ]
+        }));
+
+        if (plan.competencies.length === 0) {
+          docChildren.push(new Paragraph({
+            spacing: { before: 0, after: 12 * 20 },
+            children: [
+              new TextRun({
+                text: "Chưa tích hợp mục tiêu năng lực số.",
+                italic: true,
+                size: 12 * 2,
+                font: "Times New Roman",
+              })
+            ]
+          }));
+        } else {
+          plan.competencies.forEach(c => {
+            docChildren.push(new Paragraph({
+              bullet: { level: 0 },
+              spacing: { before: 4 * 20, after: 4 * 20 },
+              children: [
+                new TextRun({
+                  text: `[${c.level}] `,
+                  bold: true,
+                  size: 12 * 2,
+                  font: "Times New Roman",
+                }),
+                new TextRun({
+                  text: c.desc,
+                  size: 12 * 2,
+                  font: "Times New Roman",
+                })
+              ]
+            }));
+          });
+        }
+
+        // II. THIẾT BỊ DẠY HỌC & HỌC LIỆU
+        docChildren.push(new Paragraph({
+          spacing: { before: 18 * 20, after: 12 * 20 },
+          children: [
+            new TextRun({
+              text: "II. THIẾT BỊ DẠY HỌC VÀ HỌC LIỆU",
+              bold: true,
+              size: 13 * 2,
+              font: "Times New Roman",
+            })
+          ]
+        }));
+
+        docChildren.push(createMultilineParagraph(plan.materials || "Chưa chuẩn bị thiết bị dạy học.", { size: 12, before: 0, after: 12 }));
+
+        // III. TIẾN TRÌNH DẠY HỌC
+        docChildren.push(new Paragraph({
+          spacing: { before: 18 * 20, after: 12 * 20 },
+          children: [
+            new TextRun({
+              text: "III. TIẾN TRÌNH DẠY HỌC",
+              bold: true,
+              size: 13 * 2,
+              font: "Times New Roman",
+            })
+          ]
+        }));
+
+        if (!plan.activities || plan.activities.length === 0) {
+          docChildren.push(new Paragraph({
+            spacing: { before: 0, after: 12 * 20 },
+            children: [
+              new TextRun({
+                text: "Chưa có hoạt động tiến trình nào.",
+                italic: true,
+                size: 12 * 2,
+                font: "Times New Roman",
+              })
+            ]
+          }));
+        } else {
+          plan.activities.forEach((act) => {
+            docChildren.push(new Paragraph({
+              spacing: { before: 12 * 20, after: 6 * 20 },
+              children: [
+                new TextRun({
+                  text: `${act.name}`,
+                  bold: true,
+                  size: 12 * 2,
+                  font: "Times New Roman",
+                })
+              ]
+            }));
+
+            docChildren.push(createMultilineParagraph(act.content || "Chưa nhập nội dung hoạt động.", { size: 12, before: 0, after: 12 }));
+          });
+        }
+      });
+
+      const doc = new Document({
+        sections: [
+          {
+            properties: {},
+            children: docChildren
+          }
+        ]
+      });
+
+      const blob = await Packer.toBlob(doc);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `GiaoAn_TichHop_NLS_${lessonPlan.title || 'Luu'}.docx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Lỗi khi xuất tệp DOCX:", error);
+      alert("Có lỗi xảy ra khi tạo tệp .docx chuẩn định dạng. Vui lòng thử lại!");
+    }
   };
+
+  const exportToWord = handleExportDocx;
 
   // Save lesson plan to persistent Express database
   const handleSaveToDatabase = async () => {
@@ -345,10 +590,10 @@ export default function EditorView({ lessonPlan, setLessonPlan, projectLessons, 
           
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 max-w-md mx-auto">
             <button 
-              onClick={exportToWord}
+              onClick={handleExportDocx}
               className="w-full sm:w-auto bg-white text-pink-700 font-bold px-6 py-3 rounded-xl hover:bg-slate-50 transition-colors shadow-lg flex items-center justify-center cursor-pointer text-sm"
             >
-              <FileText size={18} className="mr-2" /> Tải về tệp WORD (.doc)
+              <FileText size={18} className="mr-2" /> Tải về tệp WORD (.docx)
             </button>
             <button 
               onClick={onBackToSetup}
@@ -428,10 +673,10 @@ export default function EditorView({ lessonPlan, setLessonPlan, projectLessons, 
               </button>
               
               <button 
-                onClick={exportToWord} 
+                onClick={handleExportDocx} 
                 className="flex items-center px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl text-xs font-bold hover:shadow-md cursor-pointer transition-all"
               >
-                <FileText size={14} className="mr-1.5" /> Xuất Word
+                <FileText size={14} className="mr-1.5" /> Xuất Word (.docx)
               </button>
             </div>
           </div>
@@ -793,6 +1038,121 @@ export default function EditorView({ lessonPlan, setLessonPlan, projectLessons, 
             ))}
           </div>
         </div>
+      </div>
+
+      {/* SECTION IN ẤN CHUẨN ĐỊNH DẠNG PDF */}
+      <div id="print-section" className="hidden print:block text-black p-8 font-serif leading-relaxed" style={{ fontFamily: "'Times New Roman', Times, serif", fontSize: "14pt" }}>
+        {projectLessons.length > 0 ? (
+          projectLessons.map((plan, idx) => (
+            <div key={plan.id} className={idx > 0 ? "page-break-before mb-12" : "mb-12"}>
+              <h1 className="text-center font-bold text-2xl uppercase mb-2" style={{ textDecoration: "underline" }}>KẾ HOẠCH BÀI DẠY TÍCH HỢP NĂNG LỰC SỐ</h1>
+              <h2 className="text-center font-bold text-xl uppercase mb-4">{plan.lessonNumber ? `${plan.lessonNumber}: ` : ''}{plan.title || `Chủ đề ${idx + 1}`}</h2>
+              <p className="text-center italic mb-6">
+                <strong>Môn học:</strong> {plan.subject} &nbsp;|&nbsp; 
+                <strong>Khối lớp:</strong> {plan.grade} &nbsp;|&nbsp; 
+                <strong>Thời lượng:</strong> {plan.numberOfPeriods || plan.duration || '1 tiết'}
+              </p>
+              
+              <div className="space-y-6">
+                <div>
+                  <h3 className="font-bold text-lg mb-2">I. MỤC TIÊU BÀI HỌC</h3>
+                  <div className="pl-4">
+                    <p className="font-bold mb-1">1. Mục tiêu chung:</p>
+                    <p className="whitespace-pre-line text-justify mb-4">{plan.generalObjectives || "Chưa nhập mục tiêu chung"}</p>
+                    
+                    <p className="font-bold mb-1">2. Mục tiêu Năng lực số tích hợp:</p>
+                    {plan.competencies.length === 0 ? (
+                      <p className="italic pl-4 text-slate-500">Chưa tích hợp năng lực số</p>
+                    ) : (
+                      <ul className="list-disc pl-6 space-y-1">
+                        {plan.competencies.map((c, cIdx) => (
+                          <li key={cIdx} className="text-justify">
+                            <strong>[{c.level}]</strong> {c.desc}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="font-bold text-lg mb-2">II. THIẾT BỊ DẠY HỌC VÀ HỌC LIỆU</h3>
+                  <p className="whitespace-pre-line text-justify pl-4">{plan.materials || "Chưa chuẩn bị thiết bị dạy học"}</p>
+                </div>
+
+                <div>
+                  <h3 className="font-bold text-lg mb-2">III. TIẾN TRÌNH DẠY HỌC</h3>
+                  <div className="space-y-6 pl-4">
+                    {plan.activities && plan.activities.length > 0 ? (
+                      plan.activities.map((act) => (
+                        <div key={act.id} className="mb-4">
+                          <h4 className="font-bold mb-1">{act.name}</h4>
+                          <p className="whitespace-pre-line text-justify pl-4">{act.content || "Chưa nhập nội dung hoạt động"}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="italic text-slate-500">Chưa có hoạt động tiến trình nào.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div>
+            <h1 className="text-center font-bold text-2xl uppercase mb-2" style={{ textDecoration: "underline" }}>KẾ HOẠCH BÀI DẠY TÍCH HỢP NĂNG LỰC SỐ</h1>
+            <h2 className="text-center font-bold text-xl uppercase mb-4">{lessonPlan.lessonNumber ? `${lessonPlan.lessonNumber}: ` : ''}{lessonPlan.title}</h2>
+            <p className="text-center italic mb-6">
+              <strong>Môn học:</strong> {lessonPlan.subject} &nbsp;|&nbsp; 
+              <strong>Khối lớp:</strong> {lessonPlan.grade} &nbsp;|&nbsp; 
+              <strong>Thời lượng:</strong> {lessonPlan.numberOfPeriods || lessonPlan.duration || '1 tiết'}
+            </p>
+            
+            <div className="space-y-6">
+              <div>
+                <h3 className="font-bold text-lg mb-2">I. MỤC TIÊU BÀI HỌC</h3>
+                <div className="pl-4">
+                  <p className="font-bold mb-1">1. Mục tiêu chung:</p>
+                  <p className="whitespace-pre-line text-justify mb-4">{lessonPlan.generalObjectives || "Chưa nhập mục tiêu chung"}</p>
+                  
+                  <p className="font-bold mb-1">2. Mục tiêu Năng lực số tích hợp:</p>
+                  {lessonPlan.competencies.length === 0 ? (
+                    <p className="italic pl-4 text-slate-500">Chưa tích hợp năng lực số</p>
+                  ) : (
+                    <ul className="list-disc pl-6 space-y-1">
+                      {lessonPlan.competencies.map((c, cIdx) => (
+                        <li key={cIdx} className="text-justify">
+                          <strong>[{c.level}]</strong> {c.desc}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="font-bold text-lg mb-2">II. THIẾT BỊ DẠY HỌC VÀ HỌC LIỆU</h3>
+                <p className="whitespace-pre-line text-justify pl-4">{lessonPlan.materials || "Chưa chuẩn bị thiết bị dạy học"}</p>
+              </div>
+
+              <div>
+                <h3 className="font-bold text-lg mb-2">III. TIẾN TRÌNH DẠY HỌC</h3>
+                <div className="space-y-6 pl-4">
+                  {lessonPlan.activities && lessonPlan.activities.length > 0 ? (
+                    lessonPlan.activities.map((act) => (
+                      <div key={act.id} className="mb-4">
+                        <h4 className="font-bold mb-1">{act.name}</h4>
+                        <p className="whitespace-pre-line text-justify pl-4">{act.content || "Chưa nhập nội dung hoạt động"}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="italic text-slate-500">Chưa có hoạt động tiến trình nào.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
